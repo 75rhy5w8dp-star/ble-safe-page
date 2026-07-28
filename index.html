@@ -15,7 +15,7 @@
     .orbit{width:112px;height:112px;border:1px solid rgba(182,173,255,.25);border-radius:50%;display:grid;place-items:center;box-shadow:inset 0 0 38px rgba(139,124,255,.09)}.core{width:68px;height:68px;border-radius:24px;background:linear-gradient(145deg,#9d90ff,#6e5ded);display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 15px 34px rgba(94,75,226,.35)}.core i{width:6px;border-radius:6px;background:#fff}.core i:nth-child(1){height:16px}.core i:nth-child(2){height:28px}.core i:nth-child(3){height:21px}
     .status{margin:22px 0 7px;font-size:19px;font-weight:700}.help{max-width:280px;margin:0;color:var(--muted);font-size:13px;line-height:1.65;text-align:center}.actions{display:grid;gap:11px;margin-top:15px}
     button{min-height:56px;border-radius:18px;border:0;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent}.primary{color:#0d0c16;background:linear-gradient(135deg,#c0b9ff,#8878ff);box-shadow:0 12px 30px rgba(96,77,232,.24)}button:disabled{opacity:.62}.test{background:linear-gradient(135deg,#8cecc7,#4fd09c)}.stop{color:#ffb3bb;background:rgba(255,111,127,.1);border:1px solid rgba(255,111,127,.26)}.text{min-height:44px;color:var(--muted);background:transparent}
-    .info,.safety{margin-top:14px;border:1px solid var(--line);border-radius:20px;background:rgba(18,20,27,.78)}.info{min-height:64px;padding:14px 16px;display:flex;align-items:center;gap:12px}.info b{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;border-radius:50%;color:#d7d2ff;background:rgba(139,124,255,.16);font-size:12px}.info p{margin:0;color:#c4c7d0;font-size:13px;line-height:1.55}.safety{padding:18px}.safety strong{font-size:13px}.safety ul{margin:10px 0 0;padding-left:18px;color:#8f94a1;font-size:12px;line-height:1.85}.note{margin:16px 0 0;color:#707482;font-size:11px;line-height:1.55;text-align:center}.hidden{display:none!important}
+    .info,.safety,.relay{margin-top:14px;border:1px solid var(--line);border-radius:20px;background:rgba(18,20,27,.78)}.info{min-height:64px;padding:14px 16px;display:flex;align-items:center;gap:12px}.info b{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;border-radius:50%;color:#d7d2ff;background:rgba(139,124,255,.16);font-size:12px}.info p{margin:0;color:#c4c7d0;font-size:13px;line-height:1.55}.safety,.relay{padding:18px}.safety strong,.relay strong{font-size:13px}.safety ul{margin:10px 0 0;padding-left:18px;color:#8f94a1;font-size:12px;line-height:1.85}.relay p{margin:7px 0 12px;color:#8f94a1;font-size:12px;line-height:1.6}.relay-row{display:grid;grid-template-columns:1fr auto;gap:8px}.relay input{min-width:0;height:48px;padding:0 13px;border:1px solid var(--line);border-radius:14px;outline:0;color:var(--ink);background:#0d0f15;font:inherit;font-size:12px}.relay button{min-height:48px;padding:0 15px;border-radius:14px;color:#0d0c16;background:#b9b1ff}.relay-output{margin-top:10px!important;color:#c4c7d0!important}.relay-output.received{color:var(--green)!important}.note{margin:16px 0 0;color:#707482;font-size:11px;line-height:1.55;text-align:center}.hidden{display:none!important}
     @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
   </style>
 </head>
@@ -43,7 +43,16 @@
           <li>测试固定为 15% 强度且仅持续 1 秒</li>
         </ul>
       </aside>
-      <p class="note">先验证 iPhone 能否稳定连接，AI 中转稍后再接入。</p>
+      <section class="relay" aria-label="安全中转测试">
+        <strong>Railway 安全模拟</strong>
+        <p>这里只接收并显示 TEST，不会触发蓝牙，也不会让玩具运行。</p>
+        <div class="relay-row">
+          <input id="relayUrl" inputmode="url" autocapitalize="none" autocomplete="off" placeholder="https://你的地址.up.railway.app">
+          <button id="relayStart">开始接收</button>
+        </div>
+        <p id="relayOutput" class="relay-output" role="status" aria-live="polite">尚未连接中转。</p>
+      </section>
+      <p class="note">先完成无害的 TEST 收发，再决定是否升级控制功能。</p>
     </section>
   </main>
   <script>
@@ -51,7 +60,7 @@
     const SERVICE="0000ffe0-0000-1000-8000-00805f9b34fb";
     const CHARACTERISTIC="0000ffe1-0000-1000-8000-00805f9b34fb";
     const STOP=new Uint8Array([0x55,0x04,0,0,0,0,0xaa]);
-    let device=null, characteristic=null, timer=null;
+    let device=null, characteristic=null, timer=null, relayTimer=null, lastTestId="";
     const $=id=>document.getElementById(id);
     const ui=(state,text,message)=>{
       $("dot").className="dot "+state;$("status").textContent=text;$("log").textContent=message;
@@ -95,8 +104,42 @@
     };
     $("stop").onclick=()=>safeStop();
     $("disconnect").onclick=async()=>{await safeStop(true);if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();characteristic=null;device=null;ui("","等待连接","已断开。")};
+    const normalizeRelayUrl=value=>value.trim().replace(/\/+$/,"");
+    async function pollRelay(){
+      const base=normalizeRelayUrl($("relayUrl").value);
+      if(!/^https:\/\/[a-z0-9.-]+$/i.test(base)){
+        $("relayOutput").className="relay-output";
+        $("relayOutput").textContent="请粘贴 Railway 提供的 https 地址。";
+        return;
+      }
+      try{
+        const response=await fetch(base+"/api/test/latest?after="+encodeURIComponent(lastTestId),{cache:"no-store"});
+        if(!response.ok)throw new Error("HTTP "+response.status);
+        const data=await response.json();
+        if(data.event&&data.event.type==="TEST"){
+          lastTestId=data.event.id;
+          $("relayOutput").className="relay-output received";
+          $("relayOutput").textContent="已收到 TEST："+data.event.message;
+        }else if(!lastTestId){
+          $("relayOutput").className="relay-output";
+          $("relayOutput").textContent="中转已连接，正在等待 TEST。";
+        }
+      }catch{
+        $("relayOutput").className="relay-output";
+        $("relayOutput").textContent="暂时没有连上中转，正在重试。";
+      }
+    }
+    $("relayStart").onclick=()=>{
+      if(relayTimer){clearInterval(relayTimer);relayTimer=null}
+      lastTestId="";
+      const base=normalizeRelayUrl($("relayUrl").value);
+      if(base)localStorage.setItem("safeRelayUrl",base);
+      pollRelay();
+      relayTimer=setInterval(pollRelay,1000);
+    };
+    $("relayUrl").value=localStorage.getItem("safeRelayUrl")||"";
     document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")safeStop(true)});
-    window.addEventListener("pagehide",()=>safeStop(true));
+    window.addEventListener("pagehide",()=>{safeStop(true);if(relayTimer)clearInterval(relayTimer)});
   </script>
 </body>
 </html>
