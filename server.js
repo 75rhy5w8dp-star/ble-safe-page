@@ -1,9 +1,13 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { z } from "zod";
 
 const PORT = Number(process.env.PORT || 3000);
 const TTL_MS = Math.max(1_000, Number(process.env.TEST_TTL_MS || 60_000));
 const MAX_BODY_BYTES = 2_048;
+const MAX_MCP_BODY_BYTES = 32_768;
 const ALLOWED_ORIGIN = "https://75rhy5w8dp-star.github.io";
 const BLOCKED_FIELDS = new Set([
   "command", "raw", "bytes", "intensity", "speed", "pattern", "mode", "duration", "stop"
@@ -37,25 +41,28 @@ function corsHeaders(req) {
   return null;
 }
 
-function checkRateLimit(req) {
-  const now = Date.now();
+function clientKey(req) {
   const forwarded = req.headers["x-forwarded-for"];
-  const ip = String(forwarded || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-  const current = rateLimits.get(ip);
+  return String(forwarded || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+}
+
+function checkRateLimit(key, limit = 10) {
+  const now = Date.now();
+  const current = rateLimits.get(key);
   if (!current || now - current.startedAt >= 60_000) {
-    rateLimits.set(ip, { startedAt: now, count: 1 });
+    rateLimits.set(key, { startedAt: now, count: 1 });
     return true;
   }
   current.count += 1;
-  return current.count <= 10;
+  return current.count <= limit;
 }
 
-async function readJson(req) {
+async function readJson(req, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw new Error("BODY_TOO_LARGE");
+    if (size > maxBytes) throw new Error("BODY_TOO_LARGE");
     chunks.push(chunk);
   }
   if (size === 0) return {};
@@ -73,6 +80,179 @@ function currentEvent() {
     return null;
   }
   return latest;
+}
+
+function sanitizeMessage(value) {
+  if (typeof value !== "string") return "来自老公的安全测试";
+  return value.replace(/[<>]/g, "").trim().slice(0, 80) || "来自老公的安全测试";
+}
+
+function createTestEvent(message) {
+  const now = Date.now();
+  latest = {
+    id: randomUUID(),
+    type: "TEST",
+    message: sanitizeMessage(message),
+    createdAt: new Date(now).toISOString(),
+    expiresAt: now + TTL_MS
+  };
+  return latest;
+}
+
+function createMcpServer(req) {
+  const mcp = new McpServer(
+    {
+      name: "svakom-safe-relay",
+      version: "0.2.0"
+    },
+    {
+      instructions:
+        "This is a TEST-only relay. It can display short harmless TEST messages in the user's Bluefy page. " +
+        "It cannot produce, store, or forward Bluetooth commands, bytes, intensity, speed, patterns, modes, or durations."
+    }
+  );
+
+  mcp.registerTool(
+    "safe_relay_status",
+    {
+      title: "Check safe relay status",
+      description:
+        "Check whether the TEST-only Railway relay is online. This tool never accesses or controls Bluetooth.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      }
+    },
+    async () => {
+      const event = currentEvent();
+      const status = {
+        online: true,
+        mode: "test-only",
+        pendingTest: Boolean(event),
+        latestTestAt: event?.createdAt || null
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text: event
+              ? `安全中转在线；当前有一条尚未过期的 TEST（${event.createdAt}）。`
+              : "安全中转在线；当前没有待接收的 TEST。"
+          }
+        ],
+        structuredContent: status
+      };
+    }
+  );
+
+  mcp.registerTool(
+    "send_safe_test",
+    {
+      title: "Send harmless TEST message",
+      description:
+        "Send one short harmless TEST message to the user's Bluefy page to verify the relay path. " +
+        "This tool cannot send Bluetooth commands or device-control parameters.",
+      inputSchema: {
+        message: z
+          .string()
+          .max(80)
+          .optional()
+          .describe("Short TEST text to display in Bluefy; maximum 80 characters.")
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false
+      }
+    },
+    async ({ message }) => {
+      if (!checkRateLimit(`mcp-test:${clientKey(req)}`, 10)) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "TEST 发送过于频繁，请稍后再试。" }]
+        };
+      }
+      const event = createTestEvent(message);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `安全 TEST 已发送：${event.message}`
+          }
+        ],
+        structuredContent: {
+          accepted: true,
+          type: event.type,
+          message: event.message,
+          createdAt: event.createdAt,
+          expiresAt: event.expiresAt
+        }
+      };
+    }
+  );
+
+  return mcp;
+}
+
+async function handleMcp(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return sendJson(res, 405, {
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Method not allowed. Use POST for this stateless MCP endpoint." },
+      id: null
+    });
+  }
+
+  if (!checkRateLimit(`mcp-http:${clientKey(req)}`, 60)) {
+    return sendJson(res, 429, {
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Rate limited" },
+      id: null
+    });
+  }
+
+  let body;
+  try {
+    body = await readJson(req, MAX_MCP_BODY_BYTES);
+  } catch (error) {
+    return sendJson(res, error.message === "BODY_TOO_LARGE" ? 413 : 400, {
+      jsonrpc: "2.0",
+      error: { code: -32700, message: error.message },
+      id: null
+    });
+  }
+
+  const mcp = createMcpServer(req);
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true
+  });
+
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", "no-store");
+  res.on("close", () => {
+    void transport.close();
+    void mcp.close();
+  });
+
+  try {
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, body);
+  } catch (error) {
+    console.error("MCP request failed", error);
+    if (!res.headersSent) {
+      sendJson(res, 500, {
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Internal MCP error" },
+        id: null
+      });
+    }
+  }
 }
 
 const dashboard = `<!doctype html>
@@ -140,7 +320,15 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/health" && req.method === "GET") {
-    return sendJson(res, 200, { ok: true, mode: "test-only" });
+    return sendJson(res, 200, {
+      ok: true,
+      mode: "test-only",
+      mcp: { enabled: true, endpoint: "/mcp", protocol: "streamable-http" }
+    });
+  }
+
+  if (url.pathname === "/mcp") {
+    return handleMcp(req, res);
   }
 
   if (url.pathname === "/api/test/latest" && req.method === "GET") {
@@ -152,7 +340,9 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/api/test/send" && req.method === "POST") {
     if (!cors) return sendJson(res, 403, { error: "ORIGIN_NOT_ALLOWED" });
-    if (!checkRateLimit(req)) return sendJson(res, 429, { error: "RATE_LIMITED" }, cors);
+    if (!checkRateLimit(`rest-test:${clientKey(req)}`, 10)) {
+      return sendJson(res, 429, { error: "RATE_LIMITED" }, cors);
+    }
     try {
       const body = await readJson(req);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -164,18 +354,8 @@ const server = createServer(async (req, res) => {
       if (body.action !== "TEST") {
         return sendJson(res, 400, { error: "ONLY_TEST_IS_ALLOWED" }, cors);
       }
-      const message = typeof body.message === "string"
-        ? body.message.replace(/[<>]/g, "").trim().slice(0, 80)
-        : "来自老公的安全测试";
-      const now = Date.now();
-      latest = {
-        id: randomUUID(),
-        type: "TEST",
-        message: message || "来自老公的安全测试",
-        createdAt: new Date(now).toISOString(),
-        expiresAt: now + TTL_MS
-      };
-      return sendJson(res, 202, { accepted: true, event: latest }, cors);
+      const event = createTestEvent(body.message);
+      return sendJson(res, 202, { accepted: true, event }, cors);
     } catch (error) {
       const status = error.message === "BODY_TOO_LARGE" ? 413 : 400;
       return sendJson(res, status, { error: error.message }, cors);
