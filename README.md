@@ -1,6 +1,6 @@
 # COCO / SVAKOM Bluefy relay
 
-一个由 Railway 转发命令、由 iPhone Bluefy 连接 BLE 设备的中转页。
+一个由云端服务转发命令、由 iPhone Bluefy 连接 BLE 设备的中转页。
 
 ## 支持设备
 
@@ -8,17 +8,33 @@
 - SVAKOM SL278H：FFE0 服务、FFE1 写入特征；保留 0–100% 强度控制。
 - 页面不会访问 AE00 / AE01 固件通道。
 
-## Railway 配置
+## Render 配置（推荐）
+
+仓库根目录带有 `render.yaml`。在 Render 中选择 **New → Blueprint** 并连接本仓库，平台会创建免费 Web Service，并自动生成 `BRIDGE_SECRET`。
+
+部署后在 Render 服务的 **Environment** 页面查看 `BRIDGE_SECRET`，并在 Bluefy 页面填写：
+
+```text
+https://你的服务名.onrender.com
+```
+
+MCP 地址为：
+
+```text
+https://你的服务名.onrender.com/mcp?secret=你的BRIDGE_SECRET
+```
+
+## 其他 Node 托管平台
 
 必须设置环境变量 `BRIDGE_SECRET`。建议使用至少 24 位随机字符串。
 
 MCP 地址：
 
 ```text
-https://你的域名.up.railway.app/mcp?secret=你的BRIDGE_SECRET
+https://你的域名/mcp?secret=你的BRIDGE_SECRET
 ```
 
-Bluefy 页面填写相同的 Railway 根地址和 `BRIDGE_SECRET`，连接玩具后点“连接中转”。
+Bluefy 页面填写相同的云端根地址和 `BRIDGE_SECRET`，连接玩具后点“连接中转”。
 
 ## MCP 工具
 
