@@ -24,7 +24,7 @@
   <p class="note">Bluefy 必须保持在前台；实体按键永远可以紧急停止。</p>
 </section></main>
 <script type="module">
-import {COCO,cocoSet,cocoStopAll} from "./coco-protocol.js";
+import {COCO,cocoSet,cocoStopAll} from "./coco-protocol.js?v=20260913-motor-map-v2";
 const SVAKOM={service:"0000ffe0-0000-1000-8000-00805f9b34fb",characteristic:"0000ffe1-0000-1000-8000-00805f9b34fb"};
 const SVAKOM_STOP=new Uint8Array([0x55,0x04,0,0,0,0,0xaa]);
 let device=null,characteristic=null,profile=null,testTimer=null,relayTimer=null,heartbeatTimer=null,lastEventId="";
