@@ -8,7 +8,7 @@ const PORT = Number(process.env.PORT || 3000);
 const COMMAND_TTL_MS = Math.min(120_000, Math.max(5_000, Number(process.env.COMMAND_TTL_MS || 30_000)));
 const BRIDGE_TTL_MS = 15_000;
 const BRIDGE_SECRET = String(process.env.BRIDGE_SECRET || "");
-const ALLOWED_ORIGIN = "https://75rhy5w8dp-star.github.io";
+const ALLOWED_ORIGIN = "https://kjebebehejs.github.io";
 const MAX_BODY_BYTES = 4_096;
 const MAX_MCP_BODY_BYTES = 32_768;
 
