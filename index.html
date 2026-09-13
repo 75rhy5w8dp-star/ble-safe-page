@@ -4,142 +4,46 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#08090d">
-  <title>SVAKOM 安全蓝牙测试</title>
+  <title>蓝牙玩具中转</title>
   <style>
-    :root{--ink:#f6f7fb;--muted:#969bab;--line:rgba(255,255,255,.09);--violet:#8b7cff;--green:#59d7a4;--red:#ff6f7f}
-    *{box-sizing:border-box}html{background:#08090d}body{margin:0;min-height:100svh;background:radial-gradient(circle at 50% -10%,rgba(112,92,255,.24),transparent 35rem),radial-gradient(circle at 110% 35%,rgba(62,214,174,.08),transparent 24rem),#08090d;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Helvetica Neue",Arial,sans-serif}
-    button{font:inherit}.shell{min-height:100svh;padding:max(22px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));display:grid;place-items:center}.card{width:min(100%,430px);padding:8px 4px 18px}
-    header{display:flex;align-items:flex-start;justify-content:space-between;padding:2px 2px 18px}.eyebrow{margin:0 0 7px;color:#b6adff;font-size:11px;font-weight:700;letter-spacing:.18em}h1{margin:0;font-size:30px;line-height:1;letter-spacing:-.04em}
-    .dot{width:12px;height:12px;margin-top:13px;border-radius:50%;background:#575b67;box-shadow:0 0 0 7px rgba(255,255,255,.035)}.dot.connecting{background:#f4c86a;animation:pulse 1.2s infinite}.dot.ready{background:var(--green);box-shadow:0 0 0 7px rgba(89,215,164,.11),0 0 24px rgba(89,215,164,.35)}.dot.error{background:var(--red)}
-    .hero{min-height:260px;border:1px solid var(--line);border-radius:30px;background:linear-gradient(145deg,rgba(139,124,255,.1),transparent 48%),rgba(25,27,36,.86);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;box-shadow:0 22px 70px rgba(0,0,0,.26)}
-    .orbit{width:112px;height:112px;border:1px solid rgba(182,173,255,.25);border-radius:50%;display:grid;place-items:center;box-shadow:inset 0 0 38px rgba(139,124,255,.09)}.core{width:68px;height:68px;border-radius:24px;background:linear-gradient(145deg,#9d90ff,#6e5ded);display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 15px 34px rgba(94,75,226,.35)}.core i{width:6px;border-radius:6px;background:#fff}.core i:nth-child(1){height:16px}.core i:nth-child(2){height:28px}.core i:nth-child(3){height:21px}
-    .status{margin:22px 0 7px;font-size:19px;font-weight:700}.help{max-width:280px;margin:0;color:var(--muted);font-size:13px;line-height:1.65;text-align:center}.actions{display:grid;gap:11px;margin-top:15px}
-    button{min-height:56px;border-radius:18px;border:0;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent}.primary{color:#0d0c16;background:linear-gradient(135deg,#c0b9ff,#8878ff);box-shadow:0 12px 30px rgba(96,77,232,.24)}button:disabled{opacity:.62}.test{background:linear-gradient(135deg,#8cecc7,#4fd09c)}.stop{color:#ffb3bb;background:rgba(255,111,127,.1);border:1px solid rgba(255,111,127,.26)}.text{min-height:44px;color:var(--muted);background:transparent}
-    .info,.safety,.relay{margin-top:14px;border:1px solid var(--line);border-radius:20px;background:rgba(18,20,27,.78)}.info{min-height:64px;padding:14px 16px;display:flex;align-items:center;gap:12px}.info b{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;border-radius:50%;color:#d7d2ff;background:rgba(139,124,255,.16);font-size:12px}.info p{margin:0;color:#c4c7d0;font-size:13px;line-height:1.55}.safety,.relay{padding:18px}.safety strong,.relay strong{font-size:13px}.safety ul{margin:10px 0 0;padding-left:18px;color:#8f94a1;font-size:12px;line-height:1.85}.relay p{margin:7px 0 12px;color:#8f94a1;font-size:12px;line-height:1.6}.relay-row{display:grid;grid-template-columns:1fr auto;gap:8px}.relay input{min-width:0;height:48px;padding:0 13px;border:1px solid var(--line);border-radius:14px;outline:0;color:var(--ink);background:#0d0f15;font:inherit;font-size:12px}.relay button{min-height:48px;padding:0 15px;border-radius:14px;color:#0d0c16;background:#b9b1ff}.relay-output{margin-top:10px!important;color:#c4c7d0!important}.relay-output.received{color:var(--green)!important}.note{margin:16px 0 0;color:#707482;font-size:11px;line-height:1.55;text-align:center}.hidden{display:none!important}
-    @keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+    :root{--ink:#f6f7fb;--muted:#969bab;--line:#ffffff17;--violet:#8b7cff;--green:#59d7a4;--red:#ff6f7f}*{box-sizing:border-box}html{background:#08090d}body{margin:0;min-height:100svh;background:radial-gradient(circle at 50% -10%,#705cff3d,transparent 35rem),#08090d;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.shell{min-height:100svh;padding:max(22px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));display:grid;place-items:center}.card{width:min(100%,430px);padding:8px 4px 18px}header{display:flex;justify-content:space-between;padding:2px 2px 18px}.eyebrow{margin:0 0 7px;color:#b6adff;font-size:11px;font-weight:700;letter-spacing:.18em}h1{margin:0;font-size:30px}.dot{width:12px;height:12px;margin-top:13px;border-radius:50%;background:#575b67;box-shadow:0 0 0 7px #ffffff09}.dot.connecting{background:#f4c86a;animation:pulse 1.2s infinite}.dot.ready{background:var(--green);box-shadow:0 0 0 7px #59d7a41c}.dot.error{background:var(--red)}.hero{min-height:230px;border:1px solid var(--line);border-radius:30px;background:#191b24db;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px}.orbit{width:105px;height:105px;border:1px solid #b6adff40;border-radius:50%;display:grid;place-items:center}.core{width:66px;height:66px;border-radius:24px;background:linear-gradient(145deg,#9d90ff,#6e5ded);display:flex;align-items:center;justify-content:center;gap:5px}.core i{width:6px;border-radius:6px;background:#fff}.core i:nth-child(1){height:16px}.core i:nth-child(2){height:28px}.core i:nth-child(3){height:21px}.status{margin:20px 0 7px;font-size:19px;font-weight:700}.help{margin:0;color:var(--muted);font-size:13px;text-align:center}.actions{display:grid;gap:11px;margin-top:15px}button{min-height:52px;border-radius:16px;border:0;font:inherit;font-weight:700;cursor:pointer}.primary{color:#0d0c16;background:linear-gradient(135deg,#c0b9ff,#8878ff)}button:disabled{opacity:.55}.test{background:linear-gradient(135deg,#8cecc7,#4fd09c)}.stop{color:#ffb3bb;background:#ff6f7f1a;border:1px solid #ff6f7f42}.text{min-height:42px;color:var(--muted);background:transparent}.box{margin-top:14px;padding:17px;border:1px solid var(--line);border-radius:20px;background:#12141bc7}.info{display:flex;gap:12px;align-items:center}.info b{width:24px;height:24px;display:grid;place-items:center;border-radius:50%;color:#d7d2ff;background:#8b7cff29;font-size:12px}.info p,.relay p{margin:0;color:#c4c7d0;font-size:13px;line-height:1.55}.control{margin-top:16px}.control label{display:flex;justify-content:space-between;color:#c4c7d0;font-size:13px}.control output{color:#b9b1ff;font-weight:700}.control input{width:100%;margin-top:10px;accent-color:var(--violet)}.control-buttons,.relay-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}.rampage{color:#17101a;background:linear-gradient(135deg,#ffb278,#ff718f)}.safety ul{margin:10px 0 0;padding-left:18px;color:#8f94a1;font-size:12px;line-height:1.8}.relay p{margin-top:7px}.relay input{min-width:0;height:48px;padding:0 12px;border:1px solid var(--line);border-radius:14px;outline:0;color:var(--ink);background:#0d0f15;font:inherit;font-size:12px}.relay button{min-height:48px;color:#0d0c16;background:#b9b1ff}.relay-output{margin-top:11px!important}.received{color:var(--green)!important}.note{margin:16px 0 0;color:#707482;font-size:11px;text-align:center}.hidden{display:none!important}@keyframes pulse{50%{opacity:.55}}
   </style>
 </head>
-<body>
-  <main class="shell">
-    <section class="card" aria-label="SVAKOM 蓝牙连接测试">
-      <header><div><p class="eyebrow">BLUEFY · IOS</p><h1>蓝牙中转</h1></div><span id="dot" class="dot"></span></header>
-      <div class="hero">
-        <div class="orbit"><div class="core"><i></i><i></i><i></i></div></div>
-        <p id="status" class="status">等待连接</p>
-        <p id="help" class="help">适用于 SVAKOM 分欣 Plus（SL278H）测试。</p>
-      </div>
-      <div class="actions">
-        <button id="connect" class="primary">连接玩具</button>
-        <button id="test" class="primary test hidden">1 秒轻触测试</button>
-        <button id="stop" class="stop hidden">立即停止</button>
-        <button id="disconnect" class="text hidden">断开蓝牙</button>
-      </div>
-      <div class="info" role="status" aria-live="polite"><b>i</b><p id="log">页面已就绪。</p></div>
-      <aside class="safety">
-        <strong>安全限制已开启</strong>
-        <ul>
-          <li>只请求 FFE0 / FFE1 控制通道</li>
-          <li>不扫描、不访问 AE00 / AE01 固件通道</li>
-          <li>测试固定为 15% 强度且仅持续 1 秒</li>
-        </ul>
-      </aside>
-      <section class="relay" aria-label="安全中转测试">
-        <strong>Railway 安全模拟</strong>
-        <p>这里只接收并显示 TEST，不会触发蓝牙，也不会让玩具运行。</p>
-        <div class="relay-row">
-          <input id="relayUrl" inputmode="url" autocapitalize="none" autocomplete="off" placeholder="https://你的地址.up.railway.app">
-          <button id="relayStart">开始接收</button>
-        </div>
-        <p id="relayOutput" class="relay-output" role="status" aria-live="polite">尚未连接中转。</p>
-      </section>
-      <p class="note">先完成无害的 TEST 收发，再决定是否升级控制功能。</p>
-    </section>
-  </main>
-  <script>
-    "use strict";
-    const SERVICE="0000ffe0-0000-1000-8000-00805f9b34fb";
-    const CHARACTERISTIC="0000ffe1-0000-1000-8000-00805f9b34fb";
-    const STOP=new Uint8Array([0x55,0x04,0,0,0,0,0xaa]);
-    let device=null, characteristic=null, timer=null, relayTimer=null, lastTestId="";
-    const $=id=>document.getElementById(id);
-    const ui=(state,text,message)=>{
-      $("dot").className="dot "+state;$("status").textContent=text;$("log").textContent=message;
-      const ready=state==="ready";$("connect").classList.toggle("hidden",ready);
-      ["test","stop","disconnect"].forEach(id=>$(id).classList.toggle("hidden",!ready));
-      $("help").textContent=ready?"手机请放在设备附近，并保持 Bluefy 在前台。":"适用于 SVAKOM 分欣 Plus（SL278H）测试。";
-    };
-    async function write(bytes){
-      if(!characteristic)throw new Error("设备还没有连接");
-      if(characteristic.writeValueWithoutResponse)await characteristic.writeValueWithoutResponse(bytes);
-      else await characteristic.writeValue(bytes);
-    }
-    async function safeStop(quiet=false){
-      if(timer){clearTimeout(timer);timer=null}
-      $("test").disabled=false;
-      if(!characteristic){if(!quiet)$("log").textContent="当前没有正在运行的设备。";return}
-      try{await write(STOP);if(!quiet)$("log").textContent="已发送停止指令。"}
-      catch(e){if(!quiet)$("log").textContent="停止指令未送达，请长按设备实体按键关机。"}
-    }
-    $("connect").onclick=async()=>{
-      if(!navigator.bluetooth){ui("error","浏览器不支持蓝牙","请确认正在 Bluefy 中打开，而不是 Safari。");return}
-      ui("connecting","正在寻找设备","请在弹窗中选择名称以 SL278 开头的设备。");$("connect").disabled=true;
-      try{
-        device=await navigator.bluetooth.requestDevice({filters:[{namePrefix:"SL278"}],optionalServices:[SERVICE]});
-        device.addEventListener("gattserverdisconnected",()=>{characteristic=null;device=null;ui("","连接已断开","保持 Bluefy 在前台、让手机靠近设备后再连接。");$("connect").disabled=false});
-        const server=await device.gatt.connect();
-        const service=await server.getPrimaryService(SERVICE);
-        characteristic=await service.getCharacteristic(CHARACTERISTIC);
-        ui("ready","已连接"+(device.name?" · "+device.name:""),"只连接了安全控制通道 FFE1。可以进行 1 秒轻触测试。");
-      }catch(e){characteristic=null;device=null;ui("error","连接没有完成",e&&e.message?e.message:"请确认设备已开机并靠近手机。")}
-      $("connect").disabled=false;
-    };
-    $("test").onclick=async()=>{
-      if(!characteristic||timer)return;
-      $("test").disabled=true;$("log").textContent="轻触测试中：15% 强度，1 秒后自动停止。";
-      try{
-        const value=Math.round(.15*255);
-        await write(new Uint8Array([0x55,0x04,0,0,0x01,value,0xaa]));
-        timer=setTimeout(async()=>{await safeStop();$("log").textContent="测试完成，设备已停止。"},1000);
-      }catch(e){$("test").disabled=false;$("log").textContent=e&&e.message?e.message:"测试指令未能发送。"}
-    };
-    $("stop").onclick=()=>safeStop();
-    $("disconnect").onclick=async()=>{await safeStop(true);if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();characteristic=null;device=null;ui("","等待连接","已断开。")};
-    const normalizeRelayUrl=value=>value.trim().replace(/\/+$/,"");
-    async function pollRelay(){
-      const base=normalizeRelayUrl($("relayUrl").value);
-      if(!/^https:\/\/[a-z0-9.-]+$/i.test(base)){
-        $("relayOutput").className="relay-output";
-        $("relayOutput").textContent="请粘贴 Railway 提供的 https 地址。";
-        return;
-      }
-      try{
-        const response=await fetch(base+"/api/test/latest?after="+encodeURIComponent(lastTestId),{cache:"no-store"});
-        if(!response.ok)throw new Error("HTTP "+response.status);
-        const data=await response.json();
-        if(data.event&&data.event.type==="TEST"){
-          lastTestId=data.event.id;
-          $("relayOutput").className="relay-output received";
-          $("relayOutput").textContent="已收到 TEST："+data.event.message;
-        }else if(!lastTestId){
-          $("relayOutput").className="relay-output";
-          $("relayOutput").textContent="中转已连接，正在等待 TEST。";
-        }
-      }catch{
-        $("relayOutput").className="relay-output";
-        $("relayOutput").textContent="暂时没有连上中转，正在重试。";
-      }
-    }
-    $("relayStart").onclick=()=>{
-      if(relayTimer){clearInterval(relayTimer);relayTimer=null}
-      lastTestId="";
-      const base=normalizeRelayUrl($("relayUrl").value);
-      if(base)localStorage.setItem("safeRelayUrl",base);
-      pollRelay();
-      relayTimer=setInterval(pollRelay,1000);
-    };
-    $("relayUrl").value=localStorage.getItem("safeRelayUrl")||"";
-    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")safeStop(true)});
-    window.addEventListener("pagehide",()=>{safeStop(true);if(relayTimer)clearInterval(relayTimer)});
-  </script>
-</body>
-</html>
+<body><main class="shell"><section class="card">
+  <header><div><p class="eyebrow">BLUEFY · IOS</p><h1>蓝牙中转</h1></div><span id="dot" class="dot"></span></header>
+  <div class="hero"><div class="orbit"><div class="core"><i></i><i></i><i></i></div></div><p id="status" class="status">等待连接</p><p id="help" class="help">支持 COCO 与 SVAKOM 分欣 Plus（SL278H）。</p></div>
+  <div class="actions"><button id="connect" class="primary">连接玩具</button><button id="test" class="primary test hidden">1 秒轻触测试</button><button id="stop" class="stop hidden">立即停止</button><button id="disconnect" class="text hidden">断开蓝牙</button></div>
+  <div class="box info" role="status" aria-live="polite"><b>i</b><p id="log">页面已就绪。</p></div>
+  <section id="cocoControls" class="box hidden"><strong>COCO 两路控制</strong>
+    <div class="control"><label for="suction">吮吸 <output id="suctionValue">0</output></label><input id="suction" type="range" min="0" max="20" step="1" value="0"></div>
+    <div class="control"><label for="vibration">舌舔震动 <output id="vibrationValue">0</output></label><input id="vibration" type="range" min="0" max="20" step="1" value="0"></div>
+    <div class="control-buttons"><button id="rampage" class="rampage">暴走 · 全拉满</button><button id="cocoStop" class="stop">两路停止</button></div>
+  </section>
+  <aside class="box safety"><strong>连接保护</strong><ul><li>只请求 FFE0 / FFE1 或 FF60 / FF61 控制通道</li><li>不扫描、不访问 AE00 / AE01 固件通道</li><li>页面离开前台或蓝牙断开时立即尝试停止</li></ul></aside>
+  <section class="box relay"><strong>Railway 远程中转</strong><p>地址和密码只保存在本机；过期指令自动丢弃。</p><div class="relay-row"><input id="relayUrl" inputmode="url" placeholder="https://你的地址.up.railway.app"><button id="relayStart">连接中转</button></div><div class="relay-row"><input id="relaySecret" type="password" placeholder="控制密码"><button id="relayStop">停止接收</button></div><p id="relayOutput" class="relay-output">尚未连接中转。</p></section>
+  <p class="note">Bluefy 必须保持在前台；实体按键永远可以紧急停止。</p>
+</section></main>
+<script type="module">
+import {COCO,cocoSet,cocoStopAll} from "./coco-protocol.js";
+const SVAKOM={service:"0000ffe0-0000-1000-8000-00805f9b34fb",characteristic:"0000ffe1-0000-1000-8000-00805f9b34fb"};
+const SVAKOM_STOP=new Uint8Array([0x55,0x04,0,0,0,0,0xaa]);
+let device=null,characteristic=null,profile=null,testTimer=null,relayTimer=null,heartbeatTimer=null,lastEventId="";
+const $=id=>document.getElementById(id);
+function ui(state,title,message){$("dot").className="dot "+state;$("status").textContent=title;$("log").textContent=message;const ready=state==="ready";$("connect").classList.toggle("hidden",ready);["test","stop","disconnect"].forEach(id=>$(id).classList.toggle("hidden",!ready));$("cocoControls").classList.toggle("hidden",!(ready&&profile==="coco"));$("help").textContent=ready?"手机请放在设备附近，并保持 Bluefy 在前台。":"支持 COCO 与 SVAKOM 分欣 Plus（SL278H）。"}
+async function write(bytes){if(!characteristic)throw new Error("设备还没有连接");if(characteristic.writeValueWithoutResponse)await characteristic.writeValueWithoutResponse(bytes);else await characteristic.writeValue(bytes)}
+function resetCocoUi(){for(const id of ["suction","vibration"]){$(id).value=0;$(id+"Value").value=0}}
+async function safeStop(quiet=false){if(testTimer){clearTimeout(testTimer);testTimer=null}$("test").disabled=false;if(!characteristic){if(!quiet)$("log").textContent="当前没有正在运行的设备。";return}try{await write(profile==="coco"?cocoStopAll():SVAKOM_STOP);resetCocoUi();if(!quiet)$("log").textContent="已发送停止指令。"}catch{if(!quiet)$("log").textContent="停止未送达，请用设备实体按键停止。"}}
+$("connect").onclick=async()=>{if(!navigator.bluetooth){ui("error","浏览器不支持蓝牙","请确认正在 Bluefy 中打开，而不是 Safari。");return}ui("connecting","正在寻找设备","请选择 COCO 或名称以 SL278 开头的设备。");$("connect").disabled=true;try{device=await navigator.bluetooth.requestDevice({filters:[{name:"COCO"},{namePrefix:"SL278"}],optionalServices:[COCO.service,SVAKOM.service]});device.addEventListener("gattserverdisconnected",()=>{characteristic=device=profile=null;resetCocoUi();ui("","连接已断开","让手机靠近设备后再连接。");$("connect").disabled=false});const server=await device.gatt.connect();profile=(device.name||"").toUpperCase()==="COCO"?"coco":"svakom";const selected=profile==="coco"?COCO:SVAKOM;const service=await server.getPrimaryService(selected.service);characteristic=await service.getCharacteristic(selected.characteristic);ui("ready","已连接 · "+(device.name||"设备"),"已连接控制通道 "+(profile==="coco"?"FF61":"FFE1")+"。")}catch(e){characteristic=device=profile=null;ui("error","连接没有完成",e?.message||"请确认设备已开机并靠近手机。")}$("connect").disabled=false};
+$("test").onclick=async()=>{if(!characteristic||testTimer)return;$("test").disabled=true;$("log").textContent="轻触测试中，1 秒后自动停止。";try{if(profile==="coco")await write(cocoSet(COCO.suction,1));else await write(new Uint8Array([0x55,0x04,0,0,1,Math.round(.15*255),0xaa]));testTimer=setTimeout(async()=>{await safeStop();$("log").textContent="测试完成，设备已停止。"},1000)}catch(e){$("test").disabled=false;$("log").textContent=e?.message||"测试指令未能发送。"}};
+$("stop").onclick=()=>safeStop();$("cocoStop").onclick=()=>safeStop();$("disconnect").onclick=async()=>{await safeStop(true);if(device?.gatt?.connected)device.gatt.disconnect();characteristic=device=profile=null;ui("","等待连接","已断开。")} ;
+async function setCocoMotor(id,mask){if(profile!=="coco")return;const level=Number($(id).value);$(id+"Value").value=level;try{await write(cocoSet(mask,level));$("log").textContent=(id==="suction"?"吮吸":"舌舔震动")+"已设为 "+level+"/20。"}catch(e){$("log").textContent=e?.message||"指令未能发送。"}}
+for(const [id,mask] of [["suction",COCO.suction],["vibration",COCO.vibration]]){$(id).oninput=()=>$(id+"Value").value=$(id).value;$(id).onchange=()=>setCocoMotor(id,mask)}
+$("rampage").onclick=async()=>{if(profile!=="coco")return;await write(cocoSet(COCO.suction,20));await write(cocoSet(COCO.vibration,20));for(const id of ["suction","vibration"]){$(id).value=20;$(id+"Value").value=20}$("log").textContent="暴走已开启：两路 20/20。"};
+const relayBase=()=>$("relayUrl").value.trim().replace(/\/+$/ ,"");const authHeaders=()=>({Authorization:"Bearer "+$("relaySecret").value.trim()});
+async function applyRemote(command){if(!characteristic)throw new Error("蓝牙尚未连接");if(command.target&&command.target!==profile)throw new Error("指令目标与当前设备不一致");if(command.action==="stop"){await safeStop(true);return "已执行远程停止"}if(profile==="coco"){if(command.action==="rampage"){await write(cocoSet(COCO.suction,20));await write(cocoSet(COCO.vibration,20));for(const id of ["suction","vibration"]){$(id).value=20;$(id+"Value").value=20}return "已执行暴走：两路 20/20"}const map={set_suction:["suction",COCO.suction,"吮吸"],set_vibration:["vibration",COCO.vibration,"舌舔震动"]};const item=map[command.action];if(item){$(item[0]).value=command.level;$(item[0]+"Value").value=command.level;await write(cocoSet(item[1],command.level));return item[2]+" "+command.level+"/20"}}if(profile==="svakom"&&command.action==="set_speed"){const pct=Math.max(0,Math.min(100,command.percent));const value=Math.round(pct*2.55);await write(new Uint8Array([0x55,0x04,0,0,value?1:0,value,0xaa]));return "SVAKOM 强度 "+pct+"%"}throw new Error("当前设备不支持这条指令")}
+async function poll(){const base=relayBase();if(!/^https:\/\/[a-z0-9.-]+$/i.test(base)||!$("relaySecret").value.trim()){$("relayOutput").textContent="请填写 Railway 地址和控制密码。";return}try{const response=await fetch(base+"/api/control/latest?after="+encodeURIComponent(lastEventId),{headers:authHeaders(),cache:"no-store"});if(!response.ok)throw new Error(response.status===401?"控制密码不正确":"中转 HTTP "+response.status);const data=await response.json();if(data.event){lastEventId=data.event.id;$("relayOutput").textContent=(await applyRemote(data.event.command))+" · "+new Date().toLocaleTimeString();$("relayOutput").className="relay-output received"}else if(!lastEventId)$("relayOutput").textContent="中转已连接，正在等待指令。"}catch(e){$("relayOutput").className="relay-output";$("relayOutput").textContent=e?.message||"中转暂时断线，正在重试。"}}
+async function heartbeat(){if(!characteristic)return;await fetch(relayBase()+"/api/bridge/heartbeat",{method:"POST",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify({device:profile,name:device?.name||null}),cache:"no-store"})}
+$("relayStart").onclick=()=>{if(relayTimer)clearInterval(relayTimer);if(heartbeatTimer)clearInterval(heartbeatTimer);lastEventId="";localStorage.setItem("relayUrl",relayBase());localStorage.setItem("relaySecret",$("relaySecret").value);poll();heartbeat().catch(()=>{});relayTimer=setInterval(poll,700);heartbeatTimer=setInterval(()=>heartbeat().catch(()=>{}),5000)};
+$("relayStop").onclick=()=>{clearInterval(relayTimer);clearInterval(heartbeatTimer);relayTimer=heartbeatTimer=null;$("relayOutput").textContent="已停止接收远程指令。"};$("relayUrl").value=localStorage.getItem("relayUrl")||localStorage.getItem("safeRelayUrl")||"";$("relaySecret").value=localStorage.getItem("relaySecret")||"";
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")safeStop(true)});window.addEventListener("pagehide",()=>{safeStop(true);clearInterval(relayTimer);clearInterval(heartbeatTimer)});
+</script></body></html>

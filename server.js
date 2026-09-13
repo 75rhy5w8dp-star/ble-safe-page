@@ -1,370 +1,119 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
 const PORT = Number(process.env.PORT || 3000);
-const TTL_MS = Math.max(1_000, Number(process.env.TEST_TTL_MS || 60_000));
-const MAX_BODY_BYTES = 2_048;
-const MAX_MCP_BODY_BYTES = 32_768;
+const COMMAND_TTL_MS = Math.min(120_000, Math.max(5_000, Number(process.env.COMMAND_TTL_MS || 30_000)));
+const BRIDGE_TTL_MS = 15_000;
+const BRIDGE_SECRET = String(process.env.BRIDGE_SECRET || "");
 const ALLOWED_ORIGIN = "https://75rhy5w8dp-star.github.io";
-const BLOCKED_FIELDS = new Set([
-  "command", "raw", "bytes", "intensity", "speed", "pattern", "mode", "duration", "stop"
-]);
+const MAX_BODY_BYTES = 4_096;
+const MAX_MCP_BODY_BYTES = 32_768;
 
-let latest = null;
+let latestCommand = null;
+let latestHeartbeat = null;
 const rateLimits = new Map();
 
 function sendJson(res, status, data, extraHeaders = {}) {
   const body = JSON.stringify(data);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-    ...extraHeaders
-  });
+  res.writeHead(status, {"Content-Type":"application/json; charset=utf-8","Content-Length":Buffer.byteLength(body),"Cache-Control":"no-store","X-Content-Type-Options":"nosniff",...extraHeaders});
   res.end(body);
 }
 
 function corsHeaders(req) {
   const origin = req.headers.origin;
-  if (!origin || origin === ALLOWED_ORIGIN) {
-    return {
-      "Access-Control-Allow-Origin": origin || ALLOWED_ORIGIN,
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Vary": "Origin"
-    };
-  }
+  if (!origin || origin === ALLOWED_ORIGIN) return {"Access-Control-Allow-Origin":origin || ALLOWED_ORIGIN,"Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization","Vary":"Origin"};
   return null;
 }
 
-function clientKey(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-  return String(forwarded || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+function suppliedSecret(req, url) {
+  const auth = String(req.headers.authorization || "");
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  return String(url.searchParams.get("secret") || "");
 }
 
-function checkRateLimit(key, limit = 10) {
-  const now = Date.now();
-  const current = rateLimits.get(key);
-  if (!current || now - current.startedAt >= 60_000) {
-    rateLimits.set(key, { startedAt: now, count: 1 });
-    return true;
-  }
-  current.count += 1;
-  return current.count <= limit;
+function secretMatches(candidate) {
+  if (!BRIDGE_SECRET || !candidate) return false;
+  const expected = Buffer.from(BRIDGE_SECRET);
+  const received = Buffer.from(candidate);
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
+function requireControlAuth(req, res, url, headers = {}) {
+  if (secretMatches(suppliedSecret(req, url))) return true;
+  sendJson(res, 401, {error:BRIDGE_SECRET?"UNAUTHORIZED":"BRIDGE_SECRET_NOT_CONFIGURED"}, headers);
+  return false;
+}
+
+function clientKey(req) { return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim(); }
+function checkRateLimit(key, limit = 30) {
+  const now = Date.now(); const current = rateLimits.get(key);
+  if (!current || now-current.startedAt >= 60_000) { rateLimits.set(key,{startedAt:now,count:1}); return true; }
+  current.count += 1; return current.count <= limit;
 }
 
 async function readJson(req, maxBytes = MAX_BODY_BYTES) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > maxBytes) throw new Error("BODY_TOO_LARGE");
-    chunks.push(chunk);
-  }
-  if (size === 0) return {};
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new Error("INVALID_JSON");
-  }
+  const chunks=[]; let size=0;
+  for await (const chunk of req) { size+=chunk.length; if(size>maxBytes) throw new Error("BODY_TOO_LARGE"); chunks.push(chunk); }
+  if (!size) return {};
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new Error("INVALID_JSON"); }
 }
 
-function currentEvent() {
-  if (!latest) return null;
-  if (Date.now() >= latest.expiresAt) {
-    latest = null;
-    return null;
-  }
-  return latest;
+function currentCommand() {
+  if (latestCommand && Date.now() >= latestCommand.expiresAt) latestCommand=null;
+  return latestCommand;
 }
 
-function sanitizeMessage(value) {
-  if (typeof value !== "string") return "来自老公的安全测试";
-  return value.replace(/[<>]/g, "").trim().slice(0, 80) || "来自老公的安全测试";
+function bridgeStatus() {
+  const online=Boolean(latestHeartbeat && Date.now()-latestHeartbeat.seenAt < BRIDGE_TTL_MS);
+  return {online,device:online?latestHeartbeat.device:null,name:online?latestHeartbeat.name:null,lastSeenAt:latestHeartbeat?new Date(latestHeartbeat.seenAt).toISOString():null};
 }
 
-function createTestEvent(message) {
-  const now = Date.now();
-  latest = {
-    id: randomUUID(),
-    type: "TEST",
-    message: sanitizeMessage(message),
-    createdAt: new Date(now).toISOString(),
-    expiresAt: now + TTL_MS
-  };
-  return latest;
+function queueCommand(command) {
+  const now=Date.now();
+  latestCommand={id:randomUUID(),type:"CONTROL",command,createdAt:new Date(now).toISOString(),expiresAt:now+COMMAND_TTL_MS};
+  return latestCommand;
+}
+
+function commandResult(event, description) {
+  return {content:[{type:"text",text:`${description}。${bridgeStatus().online?"Bluefy 中转在线，正在送达。":"Bluefy 中转当前离线；指令会在短暂有效期后自动丢弃。"}`}],structuredContent:{accepted:true,eventId:event.id,command:event.command,expiresAt:event.expiresAt,bridge:bridgeStatus()}};
 }
 
 function createMcpServer(req) {
-  const mcp = new McpServer(
-    {
-      name: "svakom-safe-relay",
-      version: "0.2.0"
-    },
-    {
-      instructions:
-        "This is a TEST-only relay. It can display short harmless TEST messages in the user's Bluefy page. " +
-        "It cannot produce, store, or forward Bluetooth commands, bytes, intensity, speed, patterns, modes, or durations."
-    }
-  );
-
-  mcp.registerTool(
-    "safe_relay_status",
-    {
-      title: "Check safe relay status",
-      description:
-        "Check whether the TEST-only Railway relay is online. This tool never accesses or controls Bluetooth.",
-      inputSchema: {},
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false
-      }
-    },
-    async () => {
-      const event = currentEvent();
-      const status = {
-        online: true,
-        mode: "test-only",
-        pendingTest: Boolean(event),
-        latestTestAt: event?.createdAt || null
-      };
-      return {
-        content: [
-          {
-            type: "text",
-            text: event
-              ? `安全中转在线；当前有一条尚未过期的 TEST（${event.createdAt}）。`
-              : "安全中转在线；当前没有待接收的 TEST。"
-          }
-        ],
-        structuredContent: status
-      };
-    }
-  );
-
-  mcp.registerTool(
-    "send_safe_test",
-    {
-      title: "Send harmless TEST message",
-      description:
-        "Send one short harmless TEST message to the user's Bluefy page to verify the relay path. " +
-        "This tool cannot send Bluetooth commands or device-control parameters.",
-      inputSchema: {
-        message: z
-          .string()
-          .max(80)
-          .optional()
-          .describe("Short TEST text to display in Bluefy; maximum 80 characters.")
-      },
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false
-      }
-    },
-    async ({ message }) => {
-      if (!checkRateLimit(`mcp-test:${clientKey(req)}`, 10)) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: "TEST 发送过于频繁，请稍后再试。" }]
-        };
-      }
-      const event = createTestEvent(message);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `安全 TEST 已发送：${event.message}`
-          }
-        ],
-        structuredContent: {
-          accepted: true,
-          type: event.type,
-          message: event.message,
-          createdAt: event.createdAt,
-          expiresAt: event.expiresAt
-        }
-      };
-    }
-  );
-
+  const mcp=new McpServer({name:"coco-svakom-relay",version:"1.0.0"},{instructions:"Control the user's own nearby COCO or SVAKOM toy through an authenticated Bluefy relay. COCO has suction and tongue-vibration levels 0-20. Always honor stop requests immediately."});
+  mcp.registerTool("toy_status",{title:"Check toy relay status",description:"Check whether Bluefy and a toy are connected.",inputSchema:{},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},async()=>({content:[{type:"text",text:bridgeStatus().online?`Bluefy 在线，已连接 ${bridgeStatus().name||bridgeStatus().device}。`:"Bluefy 中转当前离线。"}],structuredContent:{configured:Boolean(BRIDGE_SECRET),bridge:bridgeStatus(),pendingCommand:Boolean(currentCommand())}}));
+  mcp.registerTool("toy_set_suction",{title:"Set COCO suction",description:"Set COCO suction level from 0 (off) to 20 (maximum).",inputSchema:{level:z.number().int().min(0).max(20)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},async({level})=>commandResult(queueCommand({target:"coco",action:"set_suction",level}),`吮吸已设为 ${level}/20`));
+  mcp.registerTool("toy_set_vibration",{title:"Set COCO tongue vibration",description:"Set COCO tongue-lick vibration level from 0 (off) to 20 (maximum).",inputSchema:{level:z.number().int().min(0).max(20)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},async({level})=>commandResult(queueCommand({target:"coco",action:"set_vibration",level}),`舌舔震动已设为 ${level}/20`));
+  mcp.registerTool("toy_rampage",{title:"Set both COCO outputs to maximum",description:"Set COCO suction and tongue vibration to 20/20 together.",inputSchema:{},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},async()=>commandResult(queueCommand({target:"coco",action:"rampage"}),"暴走已设为两路 20/20"));
+  mcp.registerTool("toy_stop",{title:"Stop toy immediately",description:"Stop every active output on the connected toy.",inputSchema:{},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},async()=>commandResult(queueCommand({target:null,action:"stop"}),"停止指令已发送"));
+  mcp.registerTool("toy_set_speed",{title:"Set SVAKOM intensity",description:"Set legacy SVAKOM SL278H intensity from 0 to 100 percent.",inputSchema:{percent:z.number().int().min(0).max(100)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},async({percent})=>commandResult(queueCommand({target:"svakom",action:"set_speed",percent}),`SVAKOM 强度已设为 ${percent}%`));
   return mcp;
 }
 
-async function handleMcp(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return sendJson(res, 405, {
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Method not allowed. Use POST for this stateless MCP endpoint." },
-      id: null
-    });
-  }
-
-  if (!checkRateLimit(`mcp-http:${clientKey(req)}`, 60)) {
-    return sendJson(res, 429, {
-      jsonrpc: "2.0",
-      error: { code: -32000, message: "Rate limited" },
-      id: null
-    });
-  }
-
-  let body;
-  try {
-    body = await readJson(req, MAX_MCP_BODY_BYTES);
-  } catch (error) {
-    return sendJson(res, error.message === "BODY_TOO_LARGE" ? 413 : 400, {
-      jsonrpc: "2.0",
-      error: { code: -32700, message: error.message },
-      id: null
-    });
-  }
-
-  const mcp = createMcpServer(req);
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true
-  });
-
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Cache-Control", "no-store");
-  res.on("close", () => {
-    void transport.close();
-    void mcp.close();
-  });
-
-  try {
-    await mcp.connect(transport);
-    await transport.handleRequest(req, res, body);
-  } catch (error) {
-    console.error("MCP request failed", error);
-    if (!res.headersSent) {
-      sendJson(res, 500, {
-        jsonrpc: "2.0",
-        error: { code: -32603, message: "Internal MCP error" },
-        id: null
-      });
-    }
-  }
+async function handleMcp(req,res,url) {
+  if(req.method!=="POST") return sendJson(res,405,{jsonrpc:"2.0",error:{code:-32000,message:"Method not allowed"},id:null});
+  if(!secretMatches(suppliedSecret(req,url))) return sendJson(res,401,{jsonrpc:"2.0",error:{code:-32001,message:BRIDGE_SECRET?"Unauthorized":"BRIDGE_SECRET is not configured"},id:null});
+  if(!checkRateLimit(`mcp:${clientKey(req)}`,60)) return sendJson(res,429,{jsonrpc:"2.0",error:{code:-32000,message:"Rate limited"},id:null});
+  let body; try{body=await readJson(req,MAX_MCP_BODY_BYTES)}catch(e){return sendJson(res,e.message==="BODY_TOO_LARGE"?413:400,{jsonrpc:"2.0",error:{code:-32700,message:e.message},id:null})}
+  const mcp=createMcpServer(req); const transport=new StreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});
+  res.setHeader("Cache-Control","no-store"); res.setHeader("X-Content-Type-Options","nosniff"); res.on("close",()=>{void transport.close();void mcp.close()});
+  try{await mcp.connect(transport);await transport.handleRequest(req,res,body)}catch(error){console.error("MCP request failed",error);if(!res.headersSent)sendJson(res,500,{jsonrpc:"2.0",error:{code:-32603,message:"Internal MCP error"},id:null})}
 }
 
-const dashboard = `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0a0b10">
-  <title>安全模拟接收器</title>
-  <style>
-    *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#272250,#0a0b10 48%);color:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.card{width:min(100%,430px);padding:28px;border:1px solid #343746;border-radius:28px;background:#151720;box-shadow:0 24px 80px #0008}p{color:#a6a9b6;line-height:1.65}.state{margin:22px 0;padding:24px;border-radius:20px;background:#202331;text-align:center}.state b{display:block;margin-bottom:8px;font-size:22px}.ok b{color:#72e4b5}.small{font-size:13px}.tag{display:inline-block;padding:7px 10px;border-radius:999px;background:#332e65;color:#c8c1ff;font-size:12px;font-weight:700}
-  </style>
-</head>
-<body>
-  <main class="card">
-    <span class="tag">TEST ONLY</span>
-    <h1>安全模拟接收器</h1>
-    <p>等待一条无害的 TEST 消息，用来确认 Railway 中转能够正常收发。</p>
-    <section id="state" class="state"><b>等待 TEST</b><span>正在检查中转队列…</span></section>
-    <p class="small">此版本不会生成、保存或转发任何蓝牙控制指令。</p>
-  </main>
-  <script>
-    let last="";
-    const state=document.getElementById("state");
-    async function poll(){
-      try{
-        const response=await fetch("/api/test/latest?after="+encodeURIComponent(last),{cache:"no-store"});
-        const data=await response.json();
-        if(data.event){
-          last=data.event.id;
-          state.className="state ok";
-          state.innerHTML="<b>已收到 TEST</b><span></span>";
-          state.querySelector("span").textContent=data.event.message+" · "+new Date(data.event.createdAt).toLocaleTimeString();
-        }
-      }catch{
-        state.className="state";
-        state.innerHTML="<b>暂时断线</b><span>正在重新连接…</span>";
-      }
-    }
-    poll();
-    setInterval(poll,1000);
-  </script>
-</body>
-</html>`;
+const dashboard=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>COCO 蓝牙中转</title><style>body{margin:0;min-height:100svh;display:grid;place-items:center;background:#0a0b10;color:#f6f7fb;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.card{width:min(86%,420px);padding:28px;border:1px solid #343746;border-radius:26px;background:#151720}p{color:#a6a9b6;line-height:1.6}.tag{color:#72e4b5}</style><main class="card"><div class="tag">RELAY ONLINE</div><h1>COCO / SVAKOM 中转</h1><p>云端只保存一条短期有效指令；实际蓝牙连接由 Bluefy 页面完成。</p><p>控制接口已启用密码验证。</p></main></html>`;
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  const cors = corsHeaders(req);
-
-  if (req.method === "OPTIONS") {
-    if (!cors) return sendJson(res, 403, { error: "ORIGIN_NOT_ALLOWED" });
-    res.writeHead(204, cors);
-    return res.end();
-  }
-
-  if (url.pathname === "/" && req.method === "GET") {
-    res.writeHead(200, {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Length": Buffer.byteLength(dashboard),
-      "Cache-Control": "no-store",
-      "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      "X-Content-Type-Options": "nosniff"
-    });
-    return res.end(dashboard);
-  }
-
-  if (url.pathname === "/health" && req.method === "GET") {
-    return sendJson(res, 200, {
-      ok: true,
-      mode: "test-only",
-      mcp: { enabled: true, endpoint: "/mcp", protocol: "streamable-http" }
-    });
-  }
-
-  if (url.pathname === "/mcp") {
-    return handleMcp(req, res);
-  }
-
-  if (url.pathname === "/api/test/latest" && req.method === "GET") {
-    if (!cors) return sendJson(res, 403, { error: "ORIGIN_NOT_ALLOWED" });
-    const event = currentEvent();
-    const after = String(url.searchParams.get("after") || "");
-    return sendJson(res, 200, { event: event && event.id !== after ? event : null }, cors);
-  }
-
-  if (url.pathname === "/api/test/send" && req.method === "POST") {
-    if (!cors) return sendJson(res, 403, { error: "ORIGIN_NOT_ALLOWED" });
-    if (!checkRateLimit(`rest-test:${clientKey(req)}`, 10)) {
-      return sendJson(res, 429, { error: "RATE_LIMITED" }, cors);
-    }
-    try {
-      const body = await readJson(req);
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        return sendJson(res, 400, { error: "INVALID_BODY" }, cors);
-      }
-      if (Object.keys(body).some(key => BLOCKED_FIELDS.has(key.toLowerCase()))) {
-        return sendJson(res, 400, { error: "CONTROL_FIELDS_ARE_DISABLED" }, cors);
-      }
-      if (body.action !== "TEST") {
-        return sendJson(res, 400, { error: "ONLY_TEST_IS_ALLOWED" }, cors);
-      }
-      const event = createTestEvent(body.message);
-      return sendJson(res, 202, { accepted: true, event }, cors);
-    } catch (error) {
-      const status = error.message === "BODY_TOO_LARGE" ? 413 : 400;
-      return sendJson(res, status, { error: error.message }, cors);
-    }
-  }
-
-  return sendJson(res, 404, { error: "NOT_FOUND" });
+export const server=createServer(async(req,res)=>{
+  const url=new URL(req.url||"/",`http://${req.headers.host||"localhost"}`); const cors=corsHeaders(req);
+  if(req.method==="OPTIONS"){if(!cors)return sendJson(res,403,{error:"ORIGIN_NOT_ALLOWED"});res.writeHead(204,cors);return res.end()}
+  if(url.pathname==="/"&&req.method==="GET"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Length":Buffer.byteLength(dashboard),"Cache-Control":"no-store","Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'","X-Content-Type-Options":"nosniff"});return res.end(dashboard)}
+  if(url.pathname==="/health"&&req.method==="GET")return sendJson(res,200,{ok:true,mode:"authenticated-control",configured:Boolean(BRIDGE_SECRET),bridge:bridgeStatus(),mcp:{endpoint:"/mcp?secret=...",protocol:"streamable-http"}});
+  if(url.pathname==="/mcp")return handleMcp(req,res,url);
+  if(url.pathname==="/api/control/latest"&&req.method==="GET"){if(!cors)return sendJson(res,403,{error:"ORIGIN_NOT_ALLOWED"});if(!requireControlAuth(req,res,url,cors))return;const event=currentCommand();const after=String(url.searchParams.get("after")||"");return sendJson(res,200,{event:event&&event.id!==after?event:null},cors)}
+  if(url.pathname==="/api/bridge/heartbeat"&&req.method==="POST"){if(!cors)return sendJson(res,403,{error:"ORIGIN_NOT_ALLOWED"});if(!requireControlAuth(req,res,url,cors))return;try{const body=await readJson(req);latestHeartbeat={seenAt:Date.now(),device:["coco","svakom"].includes(body.device)?body.device:"unknown",name:typeof body.name==="string"?body.name.slice(0,40):null};return sendJson(res,200,{ok:true},cors)}catch(e){return sendJson(res,e.message==="BODY_TOO_LARGE"?413:400,{error:e.message},cors)}}
+  if(url.pathname==="/api/test/latest"&&req.method==="GET")return sendJson(res,200,{event:null},cors||{});
+  return sendJson(res,404,{error:"NOT_FOUND"});
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Safe TEST relay listening on ${PORT}`);
-});
+if(process.env.NODE_ENV!=="test")server.listen(PORT,"0.0.0.0",()=>console.log(`Authenticated relay listening on ${PORT}`));

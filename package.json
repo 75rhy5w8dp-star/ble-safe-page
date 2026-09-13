@@ -1,6 +1,6 @@
 {
-  "name": "svakom-safe-relay",
-  "version": "0.2.0",
+  "name": "coco-svakom-relay",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {

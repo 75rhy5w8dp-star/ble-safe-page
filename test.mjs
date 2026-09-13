@@ -1,0 +1,52 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { COCO, bytesToHex, cocoSet, cocoStopAll } from "./coco-protocol.js";
+
+test("COCO packets match hardware-verified commands", () => {
+  assert.equal(bytesToHex(cocoSet(COCO.suction, 1)), "C37C24636F");
+  assert.equal(bytesToHex(cocoSet(COCO.suction, 20)), "C37C24765A");
+  assert.equal(bytesToHex(cocoSet(COCO.suction, 0)), "C37E246260");
+  assert.equal(bytesToHex(cocoSet(COCO.vibration, 1)), "C37C27636C");
+  assert.equal(bytesToHex(cocoSet(COCO.vibration, 20)), "C37C27765B");
+  assert.equal(bytesToHex(cocoSet(COCO.vibration, 0)), "C37E276261");
+  assert.equal(bytesToHex(cocoStopAll()), "C37E256263");
+});
+
+test("COCO levels are rounded and clamped", () => {
+  assert.equal(bytesToHex(cocoSet(COCO.suction, 99)), "C37C24765A");
+  assert.equal(bytesToHex(cocoSet(COCO.suction, -2)), "C37E246260");
+});
+
+test("relay protects control endpoints", async () => {
+  process.env.NODE_ENV = "test";
+  process.env.BRIDGE_SECRET = "test-secret";
+  const { server } = await import(`./server.js?test=${Date.now()}`);
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const health = await fetch(`${base}/health`).then(response => response.json());
+    assert.equal(health.ok, true);
+    assert.equal(health.configured, true);
+    const denied = await fetch(`${base}/api/control/latest`);
+    assert.equal(denied.status, 401);
+    const allowed = await fetch(`${base}/api/control/latest`, { headers: { Authorization: "Bearer test-secret" } });
+    assert.equal(allowed.status, 200);
+    assert.deepEqual(await allowed.json(), { event: null });
+    const initialized = await fetch(`${base}/mcp?secret=test-secret`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } }
+      })
+    });
+    assert.equal(initialized.status, 200);
+    const initializedBody = await initialized.json();
+    assert.equal(initializedBody.result.serverInfo.name, "coco-svakom-relay");
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
