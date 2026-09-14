@@ -36,6 +36,8 @@ https://你的域名/mcp?secret=你的BRIDGE_SECRET
 
 Bluefy 页面填写相同的云端根地址和 `BRIDGE_SECRET`，连接玩具后点“连接中转”。
 
+页面会根据本机保存的 `BRIDGE_SECRET` 生成 URL-safe 的 ChatGPT MCP 地址，可用“复制 ChatGPT MCP 地址”按钮直接复制，避免手工转换密钥。
+
 ## MCP 工具
 
 - `toy_status`
